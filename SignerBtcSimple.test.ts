@@ -37,10 +37,10 @@ describe('SignerBtcSimple Tests', () => {
           args: '0xf6ca1c08a40ab3d00e2299930cf0f8c298a1a90d',
           codeHash: '0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8',
           hashType: 'type'
-        } as ScriptLike  // 确保对象符合 ScriptLike 类型
+        } as ScriptLike
       },
       {
-        capacity: "79999999215",  // 使用字符串表示 capacity
+        capacity: "79999999215",
         lock: {
           args: '0x04efddfdb4cd5211ccd5457e6c237cabcad14d4f3900',
           codeHash: '0x9c6933d977360f115a3e9cd5a2e0e475853681b80d775d93ad0f8969da343e56',

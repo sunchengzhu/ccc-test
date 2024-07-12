@@ -29,6 +29,7 @@ export class MockClient extends Client {
   }
 
   async getKnownScript(script: KnownScript): Promise<Pick<Script, "codeHash" | "hashType">> {
+    // https://github.com/RetricSu/offckb/blob/777bd83419469c33112ba12a10a56848cf003742/src/cmd/develop/lumos-config.ts#L51
     return {
       codeHash: "0x9c6933d977360f115a3e9cd5a2e0e475853681b80d775d93ad0f8969da343e56",
       hashType: "type",
@@ -85,12 +86,12 @@ export class MockClient extends Client {
 
     const mockTransaction = new Transaction(
       BigInt(0),
-      cellDeps, // cellDeps
-      [], // headerDeps
-      inputs, // inputs (Now includes one input)
-      outputs, // outputs
-      ["0x", "0x"], // outputsData
-      []  // witnesses
+      cellDeps,
+      [],
+      inputs,
+      outputs,
+      ["0x", "0x"],
+      []
     );
 
     return {
