@@ -78,3 +78,7 @@
    ```
 
    
+
+## 测试prepareTransaction
+
+运行`npm test`即可
