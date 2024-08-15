@@ -1,22 +1,11 @@
-import fetch from 'node-fetch';
-import fs from 'fs-extra';
+import fs from 'fs';
 import JSZip from 'jszip';
 import path from 'path';
 import puppeteer, { Page } from 'puppeteer';
 
-async function downloadCRX(url: string, outputPath: string): Promise<void> {
-  if (await fs.pathExists(outputPath)) {
-    console.log('CRX file already exists. Skipping download.');
-  } else {
-    const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    await fs.writeFile(outputPath, Buffer.from(arrayBuffer));
-    console.log('Download complete.');
-  }
-}
 
 async function extractCRX(crxPath: string, extractPath: string): Promise<void> {
-  const data = await fs.readFile(crxPath);
+  const data = await fs.promises.readFile(crxPath);
   const zip = new JSZip();
   const content = await zip.loadAsync(data);
 
@@ -27,8 +16,8 @@ async function extractCRX(crxPath: string, extractPath: string): Promise<void> {
       if (file && !file.dir) {
         const fileData = await file.async("nodebuffer");
         const outputPath = path.join(extractPath, filename);
-        await fs.ensureDir(path.dirname(outputPath));
-        await fs.writeFile(outputPath, fileData);
+        await fs.promises.mkdir(path.dirname(outputPath), {recursive: true});
+        await fs.promises.writeFile(outputPath, fileData);
       }
     })
   );
@@ -89,7 +78,7 @@ async function startBrowser(extensionPath: string): Promise<any> {
       const result = await mainPage.evaluate(() => {
         return okxwallet.bitcoinTestnet.connect();
       });
-      console.log('Result of bitcoin.connect():', result);
+      console.log(result);
       const signers = await page.evaluate(() => {
       });
 
@@ -193,23 +182,15 @@ async function clickButton(page: Page, buttonText: string, selector: string = 'b
 }
 
 async function getOkxwallet(): Promise<any> {
-  const crxPath = path.join(process.cwd(), 'okxwallet.crx');
-  const extractPath = path.join(process.cwd(), 'okxwallet-extension');
-
-  // 检查文件是否已存在
-  if (await fs.pathExists(crxPath)) {
-    console.log('okxwallet.crx already exists. Skipping download.');
-  } else {
-    const url = 'https://file-1304641378.cos.ap-shanghai.myqcloud.com/okxwallet.crx';
-    await downloadCRX(url, crxPath);
-  }
+  const crxPath = path.join(process.cwd(), 'extension/okxwallet.crx');
+  const extractPath = path.join(process.cwd(), 'extension/okxwallet-extension');
 
   await extractCRX(crxPath, extractPath);
   // 获取并返回 startBrowser 的返回值
   await startBrowser(extractPath);
 
   // Cleanup: Remove only the extracted directory after testing
-  await fs.remove(extractPath);
+  await fs.promises.rm(extractPath, {recursive: true, force: true});
   console.log('Cleanup complete: Removed extracted files.');
 }
 
