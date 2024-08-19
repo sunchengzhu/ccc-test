@@ -1,15 +1,22 @@
+import express, { Request, Response } from 'express';
 import fs from 'fs';
 import JSZip from 'jszip';
 import path from 'path';
-import puppeteer, { Page } from 'puppeteer';
+import puppeteer, { Browser, Page } from 'puppeteer';
 
+
+const app = express();
+const port = 3000;
+app.use(express.json()); // 使服务器能够解析 JSON 请求体
+
+let mainPage: Page;
+let browser: Browser;
 
 async function extractCRX(crxPath: string, extractPath: string): Promise<void> {
   const data = await fs.promises.readFile(crxPath);
   const zip = new JSZip();
   const content = await zip.loadAsync(data);
 
-  console.log('Extraction started...');
   await Promise.all(
     Object.keys(content.files).map(async filename => {
       const file = content.file(filename);
@@ -21,11 +28,11 @@ async function extractCRX(crxPath: string, extractPath: string): Promise<void> {
       }
     })
   );
-  console.log('Extraction complete.');
+  console.log('crx文件提取完成');
 }
 
 async function startBrowser(extensionPath: string): Promise<any> {
-  const browser = await puppeteer.launch({
+  browser = await puppeteer.launch({
     headless: false,
     args: [
       `--disable-extensions-except=${extensionPath}`,
@@ -34,97 +41,84 @@ async function startBrowser(extensionPath: string): Promise<any> {
     defaultViewport: null
   });
 
-  try {
-    const extensionPageTarget = await browser.waitForTarget(target => target.type() === 'page' && target.url().includes('initialize'), {timeout: 30000});
-    if (extensionPageTarget) {
-      const page = await extensionPageTarget.page();
-      await page.bringToFront();
-      console.log('Navigating to the initialize page...');
+  const extensionPageTarget = await browser.waitForTarget(target => target.type() === 'page' && target.url().includes('initialize'), {timeout: 30000});
+  if (!extensionPageTarget) {
+    console.log('Extension initialize page not found.');
+    return;
+  }
+  const page = await extensionPageTarget.page();
+  await page.bringToFront();
+  console.log('导航到initialize页面...');
 
-      // 等待页面稳定
-      await page.waitForFunction('document.readyState === "complete"');
+  // 等待页面稳定
+  await page.waitForFunction('document.readyState === "complete"');
 
-      // 等待“导入已有钱包”按钮出现并点击
-      await page.waitForSelector('button[data-testid="okd-button"].okui-btn.btn-xl.btn-outline-primary.block', {visible: true});
-      await page.click('button[data-testid="okd-button"].okui-btn.btn-xl.btn-outline-primary.block');
-      console.log('已点击 "导入已有钱包"按钮');
+  // 等待“导入已有钱包”按钮出现并点击
+  await page.waitForSelector('button[data-testid="okd-button"].okui-btn.btn-xl.btn-outline-primary.block', {visible: true});
+  await page.click('button[data-testid="okd-button"].okui-btn.btn-xl.btn-outline-primary.block');
+  console.log('已点击 "导入已有钱包" 按钮');
 
-      // 等待并点击“助记词或私钥”
-      await page.waitForSelector('div._wallet-space-item_1px67_9', {visible: true});
-      await page.evaluate(() => {
-        const options = Array.from(document.querySelectorAll('div._wallet-space-item_1px67_9'));
-        const mnemonicOption = options.find(option => (option as HTMLElement).innerText.includes('助记词或私钥'));
-        if (mnemonicOption instanceof HTMLElement) {
-          mnemonicOption.click();
-        }
-      });
-      console.log('已点击 "助记词或私钥"按钮');
+  // 等待并点击“助记词或私钥”
+  await page.waitForSelector('div._wallet-space-item_1px67_9', {visible: true});
+  await page.evaluate(() => {
+    const options = Array.from(document.querySelectorAll('div._wallet-space-item_1px67_9'));
+    const mnemonicOption = options.find(option => (option as HTMLElement).innerText.includes('助记词或私钥'));
+    if (mnemonicOption instanceof HTMLElement) {
+      mnemonicOption.click();
+    }
+  });
+  console.log('已点击 "助记词或私钥" 按钮');
 
-      await typeInMnemonicAndSubmit(page);
+  await typeInMnemonicAndSubmit(page);
 
-      await typeInPasswordAndSubmit(page);
+  await typeInPasswordAndSubmit(page);
 
-      const balanceSelector = '._balanceWrapper_1j1uf_1';
-      await page.waitForSelector(balanceSelector, {visible: true});
-      console.log('插件已加载，显示余额信息');
+  const balanceSelector = '._balanceWrapper_1j1uf_1';
+  await page.waitForSelector(balanceSelector, {visible: true});
+  console.log('插件已加载并显示余额信息');
 
-      // 导航到特定网页
-      const mainPage = await browser.newPage();
-      await mainPage.goto('https://www.okx.com/zh-hans/web3', {waitUntil: 'domcontentloaded'});
-      console.log('已跳转web3钱包页面并加载DOM内容');
+  // 导航到特定网页
+  mainPage = await browser.newPage();
+  await mainPage.goto('https://www.okx.com/zh-hans/web3', {waitUntil: 'domcontentloaded'});
+  console.log('已跳转web3钱包页面并加载DOM内容');
 
-      await connectWallet(mainPage, page);
+  await connectWallet(mainPage, page);
 
-      await page.close();
+  await page.close();
 
-      browser.on('targetcreated', async (target) => {
-        if (target.type() === 'page' && target.url().includes('notification.html#/dapp-entry')) {
-          const newPopup = await target.page();
-          if (newPopup) {
-            try {
-              // 等待可能的按钮可见
-              await newPopup.waitForSelector('button[data-testid="okd-button"][data-e2e-okd-button-loading="false"]', {
-                visible: true,
-                timeout: 30000
-              });
-              // 获取所有匹配的按钮
-              const buttons = await newPopup.$$(
-                'button[data-testid="okd-button"][data-e2e-okd-button-loading="false"]'
-              );
-              // 循环检查每个按钮的文本，以找到“确认”按钮并点击
-              for (const button of buttons) {
-                const buttonText = await newPopup.evaluate(el => el.textContent.trim(), button);
-                if (buttonText === "确认") {
-                  await button.click();
-                  console.log('已点击新插件页面 "确认"按钮');
-                  break; // 成功点击后退出循环
-                }
-              }
-            } catch (error) {
-              console.error('Error while interacting with the new popup:', error);
+  browser.on('targetcreated', async (target) => {
+    if (target.type() === 'page' && target.url().includes('notification.html#/dapp-entry')) {
+      const newPopup = await target.page();
+      if (newPopup) {
+        try {
+          // 等待可能的按钮可见
+          await newPopup.waitForSelector('button[data-testid="okd-button"][data-e2e-okd-button-loading="false"]', {
+            visible: true,
+            timeout: 30000
+          });
+          // 获取所有匹配的按钮
+          const buttons = await newPopup.$$(
+            'button[data-testid="okd-button"][data-e2e-okd-button-loading="false"]'
+          );
+          // 循环检查每个按钮的文本，以找到“确认”按钮并点击
+          for (const button of buttons) {
+            const buttonText = await newPopup.evaluate(el => el.textContent.trim(), button);
+            if (buttonText === "确认") {
+              await button.click();
+              console.log('已点击新弹出插件页面的 "确认" 按钮');
+              break; // 成功点击后退出循环
             }
           }
+        } catch (error) {
+          console.error('Error while interacting with the new popup:', error);
         }
-      });
-
-      const signStr = 'CKB (Bitcoin Layer) transaction: 0x83d552400f7f3c80acbeb29664ee9a65c725179f5e9cf62f8b93c0e5dfe6d460'
-      const result = await mainPage.evaluate((message) => {
-        return okxwallet.bitcoinTestnet.signMessage(message, 'ecdsa');
-      }, signStr);
-
-      console.log(result);
-
-      // 等待一段时间观察操作结果
-      // await new Promise(resolve => setTimeout(resolve, 10000));
-
-    } else {
-      console.log('Extension initialize page not found.');
+      }
     }
-  } finally {
-    // 确保浏览器无论如何都关闭
-    await browser.close();
-    console.log('Browser closed.');
-  }
+  });
+
+  // 等待一段时间观察操作结果
+  // await new Promise(resolve => setTimeout(resolve, 10000));
+
 }
 
 async function connectWallet(mainPage: Page, page: Page): Promise<void> {
@@ -221,31 +215,79 @@ async function clickButton(page, buttonText, selector = 'button[data-testid="okd
 
       // 点击按钮
       await button.click();
-      console.log(`已点击 "${buttonText}"按钮`);
+      console.log(`已点击 "${buttonText}" 按钮`);
       return; // 如果成功，退出函数
     } catch (error) {
       // console.error(`点击"${buttonText}"按钮时出错: 尝试次数 ${retries + 1}`, error);
-      console.error(`点击"${buttonText}"按钮时出错: 尝试次数 ${retries + 1}`);
+      console.error(`点击 "${buttonText}" 按钮时出错: 尝试次数 ${retries + 1}`);
       retries++;
       if (retries >= maxRetries) {
-        console.error(`点击"${buttonText}"按钮失败: 达到最大重试次数`);
+        console.error(`点击 "${buttonText}" 按钮失败: 达到最大重试次数`);
         throw error; // 抛出最后的错误
       }
     }
   }
 }
 
-async function getOkxwallet(): Promise<any> {
-  const crxPath = path.join(process.cwd(), 'extension/okxwallet.crx');
-  const extractPath = path.join(process.cwd(), 'extension/okxwallet-extension');
+async function initBrowser(): Promise<any> {
+  const crxPath = path.join(process.cwd(), 'extensions/okxwallet.crx');
+  const extractPath = path.join(process.cwd(), 'extensions/tmp/okxwallet-extensions');
 
   await extractCRX(crxPath, extractPath);
   // 获取并返回 startBrowser 的返回值
   await startBrowser(extractPath);
-
-  // Cleanup: Remove only the extracted directory after testing
-  await fs.promises.rm(extractPath, {recursive: true, force: true});
-  console.log('Removed extracted files.');
 }
 
-getOkxwallet();
+async function closeAndCleanUp(): Promise<void> {
+  try {
+    await browser.close();
+    console.log('浏览器已关闭');
+    const tmpPath = path.join(process.cwd(), 'extensions/tmp');
+    await fs.promises.rm(tmpPath, {recursive: true, force: true});
+    console.log('临时插件文件夹已删除');
+  } catch (error) {
+    console.error('Failed to close or clean up', error);
+  } finally {
+    console.log('退出进程...');
+    process.exit();
+  }
+}
+
+function setupExitHandling(): void {
+  process.on('SIGINT', async () => {
+    console.log(), console.log('收到 SIGINT, 开始清理...');
+    await closeAndCleanUp();
+  });
+
+  process.on('SIGTERM', async () => {
+    console.log(), console.log('收到 SIGTERM, 开始清理...');
+    await closeAndCleanUp();
+  });
+}
+
+app.post('/signMessage', async (req: Request, res: Response) => {
+  const signStr = req.body.signStr;
+  if (!signStr) {
+    return res.status(400).send('Sign string is required');
+  }
+  try {
+    const result = await mainPage.evaluate((message: string) => {
+      return okxwallet.bitcoinTestnet.signMessage(message, 'ecdsa');
+    }, signStr);
+    res.json({result});
+  } catch (error) {
+    console.error('Error during signing:', error);
+    res.status(500).send('Failed to sign message');
+  }
+});
+
+async function main(): Promise<void> {
+  await initBrowser();
+  setupExitHandling();  // Set up signal handling after everything is initialized
+  app.listen(port, () => {
+    console.log(`服务运行于 http://localhost:${port}`);
+    console.log();
+  });
+}
+
+main().catch(console.error);
