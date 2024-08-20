@@ -281,6 +281,16 @@ app.post('/signMessage', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/connect', async (req, res) => {
+  try {
+    const result = await mainPage.evaluate(() => okxwallet.bitcoinTestnet.connect());
+    res.json({ result });
+  } catch (error) {
+    console.error('Error during connection:', error);
+    res.status(500).send('Failed to connect');
+  }
+});
+
 async function main(): Promise<void> {
   await initBrowser();
   setupExitHandling();  // Set up signal handling after everything is initialized
