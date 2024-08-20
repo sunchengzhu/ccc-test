@@ -28,6 +28,6 @@
     "typescript": "^5.5.3"
   },
   "dependencies": {
-    "@ckb-ccc/ccc": "^0.0.5-alpha.10"
+    "@ckb-ccc/ccc": "^0.0.11-alpha.3"
   }
 }

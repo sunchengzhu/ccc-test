@@ -33,7 +33,7 @@ async function extractCRX(crxPath: string, extractPath: string): Promise<void> {
 
 async function startBrowser(extensionPath: string): Promise<any> {
   browser = await puppeteer.launch({
-    headless: false,
+    headless: true,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`
